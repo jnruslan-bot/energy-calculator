@@ -526,7 +526,10 @@ const btnDel = { ...btnDanger, padding: "4px 10px" };
       <tr>
               <td>Потребление</td>
         <td>т.у.т</td>
-        <td style={tdCtr}>{Number.isFinite(r.coeff) ? r.coeff : "—"}</td>
+        <td style={tdCtr}>
+  {Number.isFinite(r.coeff) ? numberFmt(r.coeff, 6) : "—"}
+</td>
+
 
         {years.map((y, i) => {
           const qty = parseFloat(cleanNum(r.data[i]?.qty));
@@ -574,52 +577,56 @@ const btnDel = { ...btnDanger, padding: "4px 10px" };
       </tr>
     </React.Fragment>
   ))}
-</tbody>
-{/* ===== ИТОГО по годам (сумма в тенге) ===== */}
-<tfoot>
-  <tr>
-    {/* 3 левые колонки: Наименование, Показатель, Ед. изм. */}
-    <td colSpan={3} style={tdCtr}><b>ИТОГО:</b></td>
+      </tbody>
 
-    {/* по одной ячейке на каждый год — показываем сумму в тенге */}
-    {years.map((_, i) => (
-      <td key={`tot-${i}`} style={tdCtr}>
-        <b>{moneyFmt(totals[i]?.money || 0)}</b>
-      </td>
-    ))}
-  </tr>
-</tfoot>
-<tr>
-  <td colSpan={3} style={tdCtr}><b>ИТОГО т.у.т:</b></td>
-  {years.map((_, i) => (
-    <td key={`tot-tut-${i}`} style={tdCtr}>
-      <b>{numberFmt(totals[i]?.tut || 0, 6)}</b>
-    </td>
-  ))}
-</tr>
-<tr>
- 
-</tr>
+      {/* === ИТОГИ (ровно под годами) === */}
+      <tfoot>
+        {/* ИТОГО т.у.т */}
+        <tr>
+          {/* 4 левых колонки таблицы */}
+          <td></td>
+          <td colSpan={2} style={tdCtr}><b>ИТОГО т.у.т:</b></td>
+          <td style={tdCtr}>—</td>
 
-        </table>
+          {/* Значения по годам */}
+          {years.map((_, i) => (
+            <td key={`tot-tut-${i}`} style={tdCtr}>
+              <b>{numberFmt(totals[i]?.tut || 0, 6)}</b>
+            </td>
+          ))}
+        </tr>
 
-        <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
-          <button style={btn} onClick={addRow}>+ Добавить ресурс</button>
-          <button style={btn} onClick={exportCSV}>Экспорт CSV</button>
-          <button style={btn} onClick={exportExcel}>Экспорт Excel</button>
-          <button style={btn} onClick={() => fileRef.current?.click()}>Импорт CSV</button>
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".csv,text/csv"
-            onChange={e => e.target.files?.[0] && importCSV(e.target.files[0])}
-            style={{ display: "none" }}
-          />
-          <button style={btnDanger} onClick={clearAll}>Очистить</button>
-        </div>
+        {/* ИТОГО (тенге) */}
+        <tr>
+          <td></td>
+          <td colSpan={2} style={tdCtr}><b>ИТОГО (тенге):</b></td>
+          <td style={tdCtr}>—</td>
+
+          {years.map((_, i) => (
+            <td key={`tot-money-${i}`} style={tdCtr}>
+              <b>{moneyFmt(totals[i]?.money || 0)}</b>
+            </td>
+          ))}
+        </tr>
+            </tfoot>
+    </table>
+
+      {/* Кнопки под таблицей */}
+      <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+        <button style={btn} onClick={addRow}>+ Добавить ресурс</button>
+        <button style={btn} onClick={exportCSV}>Экспорт CSV</button>
+        <button style={btn} onClick={exportExcel}>Экспорт Excel</button>
+        <button style={btn} onClick={() => fileRef.current?.click()}>Импорт CSV</button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".csv,text/csv"
+          onChange={e => e.target.files?.[0] && importCSV(e.target.files[0])}
+          style={{ display: "none" }}
+        />
+        <button style={btnDanger} onClick={clearAll}>Очистить</button>
       </div>
     </div>
-  );
-
-
+  </div>
+);
 }
