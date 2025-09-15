@@ -523,8 +523,7 @@ const btnDel = { ...btnDanger, padding: "4px 10px" };
 
       {/* Перевод в т.у.т */}
       <tr>
-        <td></td>
-        <td>Потребление</td>
+              <td>Потребление</td>
         <td>т.у.т</td>
         <td style={tdCtr}>{Number.isFinite(r.coeff) ? r.coeff : "—"}</td>
 
@@ -538,8 +537,7 @@ const btnDel = { ...btnDanger, padding: "4px 10px" };
 
       {/* Затраты */}
       <tr>
-        <td></td>
-        <td>Затраты</td>
+               <td>Затраты</td>
         <td>тенге</td>
         <td style={tdCtr}>—</td>
 
@@ -562,8 +560,7 @@ const btnDel = { ...btnDanger, padding: "4px 10px" };
 
       {/* Себестоимость */}
       <tr>
-        <td></td>
-        <td>Себестоимость</td>
+              <td>Себестоимость</td>
         <td>₸/ед</td>
         <td style={tdCtr}>—</td>
 
