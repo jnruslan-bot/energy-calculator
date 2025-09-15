@@ -501,7 +501,8 @@ const btnDel = { ...btnDanger, padding: "4px 10px" };
 
         <td>Потребление</td>
         <td>{r.unit}</td>
-        <td style={tdCtr}>{Number.isFinite(r.coeff) ? r.coeff : "—"}</td>
+       <td style={tdCtr}>—</td>
+
 
        {years.map((y, i) => (
   <td key={`qty-${r.id}-${i}`} style={td}>
