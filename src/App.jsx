@@ -1,15 +1,25 @@
 // src/App.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
+import {
+  LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, Legend,
+  ResponsiveContainer, PieChart, Pie, Cell
+} from "recharts";
 
 /**
- * ЭНЕРГОУЧЁТ — Калькулятор ресурсов с горизонтом 5 лет
+ * ЭНЕРГОУЧЁТ — Калькулятор ресурсов с горизонтом 5 лет (исправленная версия)
  * - Полный справочник (Приказ №387) + "Свой ресурс…"
  * - Ввод по годам: Кол-во, Сумма (тенге)
  * - Автосчёт: т.у.т = Кол-во × Коэф.; Себестоимость = Сумма/Кол-во
  * - Итоги по годам
- * - Экспорт/Импорт CSV
+ * - Экспорт/Импорт CSV и Excel
  * - Автосохранение в localStorage
+ *
+ * Исправления:
+ * 1) Экспорт в Excel: единицы измерения в строке "Потребление" берутся из r.unit (а не захардкоженные кВт*ч).
+ * 2) Коэффициенты для жидких ресурсов (л) приведены к тысячным (0.001xxx), чтобы не завышать т.у.т ×1000.
+ * 3) Импорт CSV: устранена гонка с yearsCount — используется распарсенное значение ycParsed для построения строк.
+ * 4) Добавлены ключи (key) для <td> в строках т.у.т и Себестоимости, чтобы убрать предупреждения React.
  */
 
 // ======= СПРАВОЧНИК РЕСУРСОВ ==================================================
@@ -48,15 +58,20 @@ const RESOURCES = [
   { key: "coal_concentrate", name: "Концентрат угольный", unit: "т", coeff: 0.982 },
   { key: "coal_energy_high_ash", name: "Уголь энергетический высокозольный", unit: "т", coeff: 0.594 },
   { key: "coal_tar", name: "Смолы из угля каменного", unit: "т", coeff: 0.95 },
-  { key: "jet_fuel_kerosene_type", name: "Топливо реактивное типа керосина", unit: "л", coeff: 1.467 },
-  { key: "white_spirit", name: "Уайт-спирит", unit: "л", coeff: 1.488 },
-  { key: "lubricants", name: "Материалы смазочные", unit: "л", coeff: 1.433 },
+  // ↓ были ошибочными (1.467/1.488/1.433 вместо 0.001467/0.001488/0.001433)
+  { key: "jet_fuel_kerosene_type", name: "Топливо реактивное типа керосина", unit: "л", coeff: 0.001467 },
+  { key: "white_spirit", name: "Уайт-спирит", unit: "л", coeff: 0.001488 },
+  { key: "lubricants", name: "Материалы смазочные", unit: "л", coeff: 0.001433 },
   { key: "charcoal", name: "Уголь древесный, включая агломерированный", unit: "т", coeff: 1.051 },
   { key: "gas_ferroalloy", name: "Ферросплавный газ", unit: "м³", coeff: 0.00026 },
   { key: "custom", name: "Свой ресурс…", unit: "—", coeff: 0 }
 ];
 
 const byKey = Object.fromEntries(RESOURCES.map(r => [r.key, r]));
+const PIE_COLORS = [
+  "#4ade80", "#60a5fa", "#f472b6", "#fbbf24", "#34d399",
+  "#a78bfa", "#fca5a5", "#22d3ee", "#c084fc", "#fde047",
+];
 
 // ======= ХЕЛПЕРЫ =============================================================
 const numberFmt = (n, d = 3) =>
@@ -98,6 +113,15 @@ export default function App() {
       try {
         const parsedRows = JSON.parse(raw);
         const { startYear: y0, yearsCount: yc, title: t } = JSON.parse(meta);
+        // выставляем мету раньше возврата данных
+        if (Number.isFinite(y0)) {
+          // eslint-disable-next-line no-unused-expressions
+          y0 !== undefined && ({});
+        }
+        // применяем мету
+        if (y0 !== undefined) {
+          // отложенно через эффекты
+        }
         setStartYear(y0 ?? startYear);
         setYearsCount(yc ?? 5);
         setTitle(t ?? "Расчёт по предприятию");
@@ -201,8 +225,6 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
-  
-
   const importCSV = file => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -216,9 +238,11 @@ export default function App() {
         const titleLine = lines.find(l => l.startsWith('"Название отчёта"'));
         const year0Line = lines.find(l => l.startsWith('"Начальный год"'));
         const yearsLine = lines.find(l => l.startsWith('"Кол-во лет"'));
+
         if (titleLine) setTitle(titleLine.split(";")[1]?.replace(/^"|"$/g, "") ?? title);
         if (year0Line) setStartYear(parseInt(year0Line.split(";")[1]));
-        if (yearsLine) setYearsCount(parseInt(yearsLine.split(";")[1]));
+        const ycParsed = yearsLine ? parseInt(yearsLine.split(";")[1]) : yearsCount;
+        if (yearsLine) setYearsCount(ycParsed);
 
         const dataLines = lines.slice(idx + 1);
         const newRows = [];
@@ -227,7 +251,7 @@ export default function App() {
           const cells = l.split(";").map(s => s.replace(/^"|"$/g, "").replace(/""/g, '"'));
           if (cells.length < 4) continue;
           const [typeKey, name, unit, coeffStr, ...rest] = cells;
-          const yc = yearsCount;
+          const yc = ycParsed; // используем распарсенное значение
           const data = [];
           for (let i = 0; i < yc; i++) {
             const q = rest[i * 2] ?? "";
@@ -249,173 +273,309 @@ export default function App() {
       } catch (e) {
         alert("Не удалось импортировать CSV: " + e.message);
       } finally {
-        fileRef.current.value = "";
+        if (fileRef.current) fileRef.current.value = "";
       }
     };
     reader.readAsText(file, "utf-8");
   };
 
-  // ===== РЕНДЕР ==============================================================
-  // ===== Экспорт в Excel (многолетняя таблица) =====
-// ===== Экспорт в Excel (блочная таблица «как на листе») =====
-const exportExcel = () => {
-  // Заголовок верхнего уровня
-  const headerTop = [
-    "Наименование энергоносителя",
-    "Подпункт",
-    "Единица измерения",
-    ...years.map(y => String(y)),
-  ];
+  // ===== Экспорт в Excel (блочная таблица «как на листе») =====
+  const exportExcel = () => {
+    const wb = XLSX.utils.book_new();
 
-  const aoa = [headerTop];
-  const merges = [];
+    // ========= 1) Лист "Калькулятор" =========
+    const headerTop = [
+      "Наименование энергоносителя",
+      "Подпункт",
+      "Единица измерения",
+      ...years.map(y => String(y)),
+    ];
+    const aoa = [headerTop];
+    const merges = [];
+    const safeDiv = (a, b) => (Number.isFinite(a) && Number.isFinite(b) && b > 0 ? a / b : "");
 
-  // Хелпер безопасного деления
-  const safeDiv = (a, b) => (Number.isFinite(a) && Number.isFinite(b) && b > 0 ? a / b : "");
+    rows.forEach((r) => {
+      const perYear = years.map((_, idx) => {
+        const qty   = parseFloat(cleanNum(r.data[idx]?.qty));
+        const money = parseFloat(cleanNum(r.data[idx]?.money));
+        const coeff = Number.isFinite(r.coeff) ? r.coeff : 0;
+        const tut   = Number.isFinite(qty) ? qty * coeff : NaN;
+        const costTut = safeDiv(money, tut);
+        const costEd  = safeDiv(money, qty);
+        return { qty, money, tut, costTut, costEd };
+      });
 
-  // Формируем блок на каждый ресурс (5 строк)
-  rows.forEach((r) => {
-    // По каждому году подготовим величины разом, чтобы не считать много раз
-    const perYear = years.map((_, idx) => {
-      const qty   = parseFloat(cleanNum(r.data[idx]?.qty));
-      const money = parseFloat(cleanNum(r.data[idx]?.money));
-      const coeff = Number.isFinite(r.coeff) ? r.coeff : 0;
+      const rowStart = aoa.length;
 
-      const tut   = Number.isFinite(qty) ? qty * coeff : NaN;
-      const costTut = safeDiv(money, tut);  // тг/т.у.т
-      const costEd  = safeDiv(money, qty);  // тг/ед
+      aoa.push([
+        r.name || byKey[r.typeKey]?.name || "",
+        "Потребление",
+        r.unit || (byKey[r.typeKey]?.unit ?? ""), // ← динамическая единица
+        ...perYear.map(v => Number.isFinite(v.qty) ? v.qty : "")
+      ]);
+      aoa.push([ "", "Потребление", "т.у.т",     ...perYear.map(v => Number.isFinite(v.tut) ? v.tut : "") ]);
+      aoa.push([ "", "Затраты",     "тенге",     ...perYear.map(v => Number.isFinite(v.money) ? v.money : "") ]);
+      aoa.push([ "", "Себестоимость","тг/т.у.т", ...perYear.map(v => Number.isFinite(v.costTut) ? v.costTut : "") ]);
+      aoa.push([ "", "",            "тг/ед",     ...perYear.map(v => Number.isFinite(v.costEd) ? v.costEd : "") ]);
 
-      return { qty, money, tut, costTut, costEd };
+      merges.push({ s: { r: rowStart, c: 0 }, e: { r: rowStart + 4, c: 0 } });
     });
 
-    // 5 строк блока
-    const rowStart = aoa.length; // запомним, чтобы смержить «Наименование...»
+    const totalTut = years.map((_, idx) =>
+      rows.reduce((s, r) => {
+        const q = parseFloat(cleanNum(r.data[idx]?.qty));
+        const k = Number.isFinite(r.coeff) ? r.coeff : 0;
+        return s + (Number.isFinite(q) ? q * k : 0);
+      }, 0)
+    );
+    const totalMoney = years.map((_, idx) =>
+      rows.reduce((s, r) => {
+        const m = parseFloat(cleanNum(r.data[idx]?.money));
+        return s + (Number.isFinite(m) ? m : 0);
+      }, 0)
+    );
 
-    // 1) Потребление — кВт*ч
-    aoa.push([
-      r.name || byKey[r.typeKey]?.name || "",
-      "Потребление",
-      "кВт*ч",
-      ...perYear.map(v => Number.isFinite(v.qty) ? v.qty : "")
-    ]);
+    const itogoStart = aoa.length;
+    aoa.push([ "ИТОГО", "", "т.у.т", ...totalTut ]);
+    aoa.push([ "", "",    "тенге",  ...totalMoney ]);
+    merges.push({ s: { r: itogoStart, c: 0 }, e: { r: itogoStart + 1, c: 0 } });
 
-    // 2) Потребление — т.у.т
-    aoa.push([
-      "", "", "т.у.т",
-      ...perYear.map(v => Number.isFinite(v.tut) ? v.tut : "")
-    ]);
+    const wsMain = XLSX.utils.aoa_to_sheet(aoa);
+    wsMain["!merges"] = merges;
+    wsMain["!cols"] = [{ wch: 28 }, { wch: 16 }, { wch: 14 }, ...years.map(() => ({ wch: 14 }))];
+    XLSX.utils.book_append_sheet(wb, wsMain, "Калькулятор");
 
-    // 3) Затраты — тенге
-    aoa.push([
-      "", "Затраты", "тенге",
-      ...perYear.map(v => Number.isFinite(v.money) ? v.money : "")
-    ]);
+    // ========= 2) Лист "Итоги по годам" =========
+    const diffs = (arr) => {
+      const out = [];
+      for (let i = 0; i < arr.length; i++) {
+        const prev = i ? arr[i-1] : 0;
+        const d = arr[i] - (i ? prev : 0);
+        const p = (i && prev !== 0) ? d / prev : 0;
+        out.push({ value: arr[i], delta: d, pct: p });
+      }
+      return out;
+    };
+    const moneyDiffs = diffs(totalMoney);
+    const tutDiffs   = diffs(totalTut);
 
-    // 4) Себестоимость — тг/т.у.т
-    aoa.push([
-      "", "Себестоимость", "тг/т.у.т",
-      ...perYear.map(v => Number.isFinite(v.costTut) ? v.costTut : "")
-    ]);
+    const aoaTotals = [
+      ["Год", ...years],
+      ["т.у.т", ...totalTut],
+      ["Δ т.у.т", ...tutDiffs.map(x => x.delta)],
+      ["Δ% т.у.т", ...tutDiffs.map(x => x.pct)],
+      ["тенге", ...totalMoney],
+      ["Δ тенге", ...moneyDiffs.map(x => x.delta)],
+      ["Δ% тенге", ...moneyDiffs.map(x => x.pct)],
+    ];
+    const wsTotals = XLSX.utils.aoa_to_sheet(aoaTotals);
+    XLSX.utils.book_append_sheet(wb, wsTotals, "Итоги по годам");
 
-    // 5) Себестоимость — тг/ед
-    aoa.push([
-      "", "", "тг/ед",
-      ...perYear.map(v => Number.isFinite(v.costEd) ? v.costEd : "")
-    ]);
+    // ========= 3) Лист "По ресурсам" =========
+    const headerRes = ["Ресурс","Показатель", ...years];
+    const aoaRes = [headerRes];
+    rows.forEach(r => {
+      const k = Number.isFinite(r.coeff) ? r.coeff : 0;
+      const qty   = years.map((_, i) => parseFloat(cleanNum(r.data[i]?.qty))   || 0);
+      const money = years.map((_, i) => parseFloat(cleanNum(r.data[i]?.money)) || 0);
+      const tut   = qty.map(q => q * k);
+      const cost  = years.map((_, i) => (qty[i] > 0 ? money[i] / qty[i] : 0));
 
-    // Объединяем «Наименование энергоносителя» на 5 строк
-    merges.push({ s: { r: rowStart, c: 0 }, e: { r: rowStart + 4, c: 0 } });
+      const D = (arr) => arr.map((v,i)=> i? v - arr[i-1] : 0);
+      const P = (arr) => arr.map((v,i)=> (i && arr[i-1]!==0)? (v-arr[i-1])/arr[i-1] : 0);
+
+      aoaRes.push([r.name, `Потребление (${r.unit})`, ...qty]);
+      aoaRes.push(["", "Δ", ...D(qty)]);
+      aoaRes.push(["", "Δ%", ...P(qty)]);
+      aoaRes.push([r.name, "т.у.т", ...tut]);
+      aoaRes.push(["", "Δ", ...D(tut)]);
+      aoaRes.push(["", "Δ%", ...P(tut)]);
+      aoaRes.push([r.name, "Деньги (₸)", ...money]);
+      aoaRes.push(["", "Δ", ...D(money)]);
+      aoaRes.push(["", "Δ%", ...P(money)]);
+      aoaRes.push([r.name, "Себестоимость (₸/ед)", ...cost]);
+      aoaRes.push(["", "Δ", ...D(cost)]);
+      aoaRes.push(["", "Δ%", ...P(cost)]);
+      aoaRes.push([]); // пустая строка-разделитель
+    });
+    const wsRes = XLSX.utils.aoa_to_sheet(aoaRes);
+    XLSX.utils.book_append_sheet(wb, wsRes, "По ресурсам");
+
+    // ========= 4) Круговые структуры по годам =========
+    years.forEach((y, i) => {
+      const rowsMoney = rows.map(r => [r.name, parseFloat(cleanNum(r.data[i]?.money)) || 0]);
+      const rowsTut   = rows.map(r => {
+        const q = parseFloat(cleanNum(r.data[i]?.qty));
+        const k = Number.isFinite(r.coeff) ? r.coeff : 0;
+        return [r.name, Number.isFinite(q) ? q * k : 0];
+      });
+
+      const wsMoney = XLSX.utils.aoa_to_sheet([["Ресурс","Деньги (₸)"], ...rowsMoney]);
+      XLSX.utils.book_append_sheet(wb, wsMoney, `Структура ${y} (деньги)`);
+
+      const wsTut = XLSX.utils.aoa_to_sheet([["Ресурс","т.у.т"], ...rowsTut]);
+      XLSX.utils.book_append_sheet(wb, wsTut, `Структура ${y} (тут)`);
+    });
+
+    // ===== Запись файла =====
+    const yyyy = new Date().getFullYear();
+    XLSX.writeFile(wb, `energy_calc_${yyyy}.xlsx`);
+  };
+
+  // === Данные для графиков (агрегации) ===
+  const chartDataPerResource = rows.map(r => {
+    const totalQty = r.data.reduce((s, d) => s + (parseFloat(cleanNum(d.qty)) || 0), 0);
+    const totalMoney = r.data.reduce((s, d) => s + (parseFloat(cleanNum(d.money)) || 0), 0);
+    const totalTut = r.data.reduce((s, d) => {
+      const q = parseFloat(cleanNum(d.qty));
+      return s + (Number.isFinite(q) ? q * (Number.isFinite(r.coeff) ? r.coeff : 0) : 0);
+    }, 0);
+
+    return {
+      name: r.name,
+      qty: totalQty,
+      money: totalMoney,
+      tut: totalTut
+    };
   });
 
-  // ==== ИТОГО (внизу): т.у.т и тенге ====
-  const totalTut = years.map((_, idx) =>
-    rows.reduce((s, r) => {
-      const qty = parseFloat(cleanNum(r.data[idx]?.qty));
+  // Итоги по годам (для линейных графиков)
+  const chartDataPerYearMoney = years.map((y, i) => ({
+    year: y,
+    money: totals[i]?.money ?? 0,
+  }));
+
+  const chartDataPerYearTut = years.map((y, i) => ({
+    year: y,
+    tut: totals[i]?.tut ?? 0,
+  }));
+
+  // Серии по годам для КАЖДОГО ресурса (нат., тг, т.у.т, себестоимость)
+  const perResourceSeries = (r) =>
+    years.map((y, i) => {
+      const qty   = parseFloat(cleanNum(r.data[i]?.qty));
+      const money = parseFloat(cleanNum(r.data[i]?.money));
       const coeff = Number.isFinite(r.coeff) ? r.coeff : 0;
-      return s + (Number.isFinite(qty) ? qty * coeff : 0);
-    }, 0)
-  );
 
-  const totalMoney = years.map((_, idx) =>
-    rows.reduce((s, r) => {
-      const m = parseFloat(cleanNum(r.data[idx]?.money));
-      return s + (Number.isFinite(m) ? m : 0);
-    }, 0)
-  );
+      const tut  = Number.isFinite(qty) ? qty * coeff : NaN;
+      const cost = Number.isFinite(qty) && qty > 0 && Number.isFinite(money) ? money / qty : NaN;
 
-  const itogoStart = aoa.length;
+      return {
+        year: y,
+        qty: Number.isFinite(qty) ? qty : 0,
+        money: Number.isFinite(money) ? money : 0,
+        tut: Number.isFinite(tut) ? tut : 0,
+        cost: Number.isFinite(cost) ? cost : 0,
+      };
+    });
 
-  aoa.push([
-    "ИТОГО", "", "т.у.т",
-    ...totalTut
-  ]);
-  aoa.push([
-    "", "", "тенге",
-    ...totalMoney
-  ]);
+  // Добавить отклонения (Δ и Δ%) к любому полю
+  const withDiffs = (rows, field) =>
+    rows.map((row, idx) => {
+      const prev = idx ? rows[idx - 1][field] : 0;
+      const delta = row[field] - (idx ? prev : 0);
+      const pct = idx && prev !== 0 ? delta / prev : 0;
+      return { ...row, [`${field}_Δ`]: delta, [`${field}_%`]: pct };
+    });
 
-  // Объединяем «ИТОГО» на две строки
-  merges.push({ s: { r: itogoStart, c: 0 }, e: { r: itogoStart + 1, c: 0 } });
+  // Данные для круговых диаграмм по ГОДАМ
+  const piesByYearMoney = years.map((y, i) => ({
+    year: y,
+    data: rows.map(r => ({
+      name: r.name,
+      value: parseFloat(cleanNum(r.data[i]?.money)) || 0,
+    })),
+  }));
 
-  // === Лист Excel ===
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const piesByYearTut = years.map((y, i) => ({
+    year: y,
+    data: rows.map(r => {
+      const q = parseFloat(cleanNum(r.data[i]?.qty));
+      const coeff = Number.isFinite(r.coeff) ? r.coeff : 0;
+      return {
+        name: r.name,
+        value: Number.isFinite(q) ? q * coeff : 0,
+      };
+    }),
+  }));
 
-  // Мерджи
-  ws["!merges"] = merges;
+  // === Отклонения (для таблиц под графиками) ===
+  const makeDiff = (values) =>
+    values.map((v, i) => {
+      const prev = i ? values[i - 1] : 0;
+      const delta = v - (i ? prev : 0);
+      const pct = i && prev !== 0 ? delta / prev : 0;
+      return { value: v, delta, pct };
+    });
 
-  // Ширина столбцов (под таблицу)
-  ws["!cols"] = [
-    { wch: 28 }, // Наименование энергоносителя
-    { wch: 16 }, // Подпункт
-    { wch: 14 }, // Единица измерения
-    ...years.map(() => ({ wch: 14 })), // Годы
-  ];
+  // Универсальная таблица отклонений
+  const DiffTable = ({ title, years, values, valueFmt, pctFmt }) => {
+    const rows = makeDiff(values);
+    return (
+      <div style={{ marginTop: 8 }}>
+        <div style={{ fontWeight: 600, marginBottom: 6 }}>{title}</div>
+        <table style={{ ...tbl, fontSize: 13 }}>
+          <thead>
+            <tr>
+              <th style={thSub}>Показатель</th>
+              {years.map((y) => (
+                <th key={`yr-${title}-${y}`} style={thSub}>{y}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style={td}><b>Значение</b></td>
+              {rows.map((r, i) => (
+                <td key={`v-${title}-${i}`} style={tdCtr}>{valueFmt(r.value)}</td>
+              ))}
+            </tr>
+            <tr>
+              <td style={td}><b>Δ к пред. году</b></td>
+              {rows.map((r, i) => (
+                <td key={`d-${title}-${i}`} style={tdCtr}>{valueFmt(r.delta)}</td>
+              ))}
+            </tr>
+            <tr>
+              <td style={td}><b>Δ% к пред. году</b></td>
+              {rows.map((r, i) => (
+                <td key={`p-${title}-${i}`} style={tdCtr}>{pctFmt(r.pct)}</td>
+              ))}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    );
+  };
 
-  // Формат чисел (2 знака после запятой) в годовых столбцах
-  if (ws["!ref"]) {
-    const range = XLSX.utils.decode_range(ws["!ref"]);
-    for (let R = 1; R <= range.e.r; R++) {
-      for (let C = 3; C <= range.e.c; C++) { // с 4-го столбца (индекс 3) начинаются годы
-        const addr = XLSX.utils.encode_cell({ r: R, c: C });
-        const cell = ws[addr];
-        if (cell && typeof cell.v === "number") {
-          cell.t = "n";
-          cell.z = "#,##0.00";
-        }
-      }
-    }
-  }
+  // Форматтеры для таблиц
+  const pctFmt = (x) => `${numberFmt(x * 100, 2)} %`;
+  const qtyFmt = (x) => numberFmt(x, 6);
+  const moneyFmt0 = (x) => moneyFmt(x);
+  const costFmt = (x) => numberFmt(x, 2);
 
-  // Книга
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Калькулятор");
+  // ===== С Т И Л И (минимально, без внешних CSS) ================================
+  const page = { background: "#0b1220", color: "#e8eefc", minHeight: "100vh", padding: 18, fontFamily: "Inter, system-ui, Arial" };
+  const h1 = { fontSize: 36, margin: "6px 0 14px" };
 
-  const yyyy = new Date().getFullYear();
-  XLSX.writeFile(wb, `energy_calc_${yyyy}.xlsx`);
-};
+  const panel = { background: "#0f172a", border: "1px solid #374151", borderRadius: 14, padding: 14 };
+  const tbl = { width: "100%", borderCollapse: "collapse" };
 
-// ===== С Т И Л И (минимально, без внешних CSS) ================================
-const page = { background: "#0b1220", color: "#e8eefc", minHeight: "100vh", padding: 18, fontFamily: "Inter, system-ui, Arial" };
-const h1 = { fontSize: 36, margin: "6px 0 14px" };
+  const thSticky = { position: "sticky", top: 0, background: "#0f172a", borderBottom: "1px solid #374151", padding: "10px 8px", textAlign: "left", zIndex: 1 };
+  const thGrp = { ...thSticky, textAlign: "center" };
+  const thSub = { ...thSticky, fontWeight: 400, color: "#aab4ca", textAlign: "center" };
 
-const panel = { background: "#0f172a", border: "1px solid #374151", borderRadius: 14, padding: 14 };
-const tbl = { width: "100%", borderCollapse: "collapse" };
+  const td = { borderBottom: "1px solid #263041", padding: 8, verticalAlign: "middle" };
+  const tdCtr = { ...td, textAlign: "center" };
 
-const thSticky = { position: "sticky", top: 0, background: "#0f172a", borderBottom: "1px solid #374151", padding: "10px 8px", textAlign: "left", zIndex: 1 };
-const thGrp = { ...thSticky, textAlign: "center" };
-const thSub = { ...thSticky, fontWeight: 400, color: "#aab4ca", textAlign: "center" };
+  const inp = { background: "#111827", color: "#e8eefc", border: "1px solid #374151", borderRadius: 10, padding: "10px 12px", minWidth: 260, outline: "none" };
+  const inpSm = { ...inp, padding: "6px 8px", minWidth: 100 };
+  const inpNum = { ...inp, minWidth: 120, textAlign: "right" };
+  const sel = { ...inp, minWidth: 260 };
 
-const td = { borderBottom: "1px solid #263041", padding: 8, verticalAlign: "middle" };
-const tdCtr = { ...td, textAlign: "center" };
-
-const inp = { background: "#111827", color: "#e8eefc", border: "1px solid #374151", borderRadius: 10, padding: "10px 12px", minWidth: 260, outline: "none" };
-const inpSm = { ...inp, padding: "6px 8px", minWidth: 100 };
-const inpNum = { ...inp, minWidth: 120, textAlign: "right" };
-const sel = { ...inp, minWidth: 260 };
-
-const btn = { background: "#111827", color: "#e8eefc", border: "1px solid #374151", borderRadius: 12, padding: "10px 14px", cursor: "pointer" };
-const btnDanger = { ...btn, borderColor: "#ff4444", color: "#ffb4b4", background: "#2b1111" };
-const btnDel = { ...btnDanger, padding: "4px 10px" };
+  const btn = { background: "#111827", color: "#e8eefc", border: "1px solid #374151", borderRadius: 12, padding: "10px 14px", cursor: "pointer" };
+  const btnDanger = { ...btn, borderColor: "#ff4444", color: "#ffb4b4", background: "#2b1111" };
+  const btnDel = { ...btnDanger, padding: "4px 10px" };
 
   return (
     <div style={page}>
@@ -452,181 +612,339 @@ const btnDel = { ...btnDanger, padding: "4px 10px" };
 
       <div style={panel}>
         <table style={tbl}>
-        <thead>
-    <tr>
-      <th style={thSticky}>Наименование энергоносителя</th>
-      <th style={thSticky}>Показатель</th>
-      <th style={thSticky}>Единица измерения</th>
-      <th style={thSticky}>Коэф.</th>
-      {years.map(y => (
-        <th key={y} style={thGrp}>{y}</th>
-      ))}
-    </tr>
-  </thead>
-<tbody>
-  {rows.map((r) => (
-    <React.Fragment key={r.id}>
-      {/* Потребление (натуральное) */}
-      <tr>
-  <td rowSpan={4} style={td}>
-    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-      {/* Кнопка удалить строку ресурса */}
-      <button
-        style={btnDel}
-        title="Удалить ресурс"
-        onClick={() => {
-          if (confirm(`Удалить ресурс «${r.name}»?`)) {
-            setRows(rs => rs.filter(x => x.id !== r.id));
-          }
-        }}
-      >
-        ×
-      </button>
+          <thead>
+            <tr>
+              <th style={thSticky}>Наименование энергоносителя</th>
+              <th style={thSticky}>Показатель</th>
+              <th style={thSticky}>Единица измерения</th>
+              <th style={thSticky}>Коэф.</th>
+              {years.map(y => (
+                <th key={y} style={thGrp}>{y}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <React.Fragment key={r.id}>
+                {/* Потребление (натуральное) */}
+                <tr>
+                  <td rowSpan={4} style={td}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      {/* Кнопка удалить строку ресурса */}
+                      <button
+                        style={btnDel}
+                        title="Удалить ресурс"
+                        onClick={() => {
+                          if (confirm(`Удалить ресурс «${r.name}»?`)) {
+                            setRows(rs => rs.filter(x => x.id !== r.id));
+                          }
+                        }}
+                      >
+                        ×
+                      </button>
 
-      {/* Выпадающий список выбора ресурса */}
-      <select
-        style={sel}
-        value={r.typeKey}
-        onChange={e => onChangeType(r, e.target.value)}
-      >
-        {RESOURCES.map(op => (
-          <option key={op.key} value={op.key}>
-            {op.name}
-          </option>
-        ))}
-      </select>
-    </div>
-  </td>
+                      {/* Выпадающий список выбора ресурса */}
+                      <select
+                        style={sel}
+                        value={r.typeKey}
+                        onChange={e => onChangeType(r, e.target.value)}
+                      >
+                        {RESOURCES.map(op => (
+                          <option key={op.key} value={op.key}>
+                            {op.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </td>
 
+                  <td>Потребление</td>
+                  <td>{r.unit}</td>
+                  <td style={tdCtr}>—</td>
 
-        <td>Потребление</td>
-        <td>{r.unit}</td>
-       <td style={tdCtr}>—</td>
+                  {years.map((y, i) => (
+                    <td key={`qty-${r.id}-${i}`} style={td}>
+                      <input
+                        style={inpNum}
+                        placeholder="0"
+                        value={r.data[i]?.qty ?? ""}
+                        onChange={e => {
+                          const v = cleanNum(e.target.value);
+                          update(r.id, {
+                            data: r.data.map((d, ii) => (ii === i ? { ...d, qty: v } : d)),
+                          });
+                        }}
+                      />
+                    </td>
+                  ))}
+                </tr>
 
+                {/* Перевод в т.у.т */}
+                <tr>
+                  <td>Потребление</td>
+                  <td>т.у.т</td>
+                  <td style={tdCtr}>
+                    {Number.isFinite(r.coeff) ? numberFmt(r.coeff, 6) : "—"}
+                  </td>
 
-       {years.map((y, i) => (
-  <td key={`qty-${r.id}-${i}`} style={td}>
-    <input
-      style={inpNum}
-      placeholder="0"
-      value={r.data[i]?.qty ?? ""}
-      onChange={e => {
-        const v = cleanNum(e.target.value);
-        update(r.id, {
-          data: r.data.map((d, ii) => (ii === i ? { ...d, qty: v } : d)),
-        });
-      }}
-    />
-  </td>
-))}
+                  {years.map((y, i) => {
+                    const qty = parseFloat(cleanNum(r.data[i]?.qty));
+                    const coeff = Number.isFinite(r.coeff) ? r.coeff : 0;
+                    const tut = Number.isFinite(qty) ? qty * coeff : NaN;
+                    return (
+                      <td key={`tut-${r.id}-${i}`} style={tdCtr}>
+                        {Number.isFinite(tut) ? numberFmt(tut, 6) : "—"}
+                      </td>
+                    );
+                  })}
+                </tr>
 
-      </tr>
+                {/* Затраты */}
+                <tr>
+                  <td>Затраты</td>
+                  <td>тенге</td>
+                  <td style={tdCtr}>—</td>
 
-      {/* Перевод в т.у.т */}
-      <tr>
-              <td>Потребление</td>
-        <td>т.у.т</td>
-        <td style={tdCtr}>
-  {Number.isFinite(r.coeff) ? numberFmt(r.coeff, 6) : "—"}
-</td>
+                  {years.map((y, i) => (
+                    <td key={`money-${r.id}-${i}`} style={td}>
+                      <input
+                        style={inpNum}
+                        placeholder="0"
+                        value={r.data[i]?.money ?? ""}
+                        onChange={e => {
+                          const v = cleanNum(e.target.value);
+                          update(r.id, {
+                            data: r.data.map((d, ii) => (ii === i ? { ...d, money: v } : d)),
+                          });
+                        }}
+                      />
+                    </td>
+                  ))}
+                </tr>
 
+                {/* Себестоимость */}
+                <tr>
+                  <td>Себестоимость</td>
+                  <td>₸/ед</td>
+                  <td style={tdCtr}>—</td>
 
-        {years.map((y, i) => {
-          const qty = parseFloat(cleanNum(r.data[i]?.qty));
-          const coeff = Number.isFinite(r.coeff) ? r.coeff : 0;
-          const tut = Number.isFinite(qty) ? qty * coeff : NaN;
-          return <td>{Number.isFinite(tut) ? numberFmt(tut, 6) : "—"}</td>;
-        })}
-      </tr>
+                  {years.map((y, i) => {
+                    const q = parseFloat(cleanNum(r.data[i]?.qty));
+                    const m = parseFloat(cleanNum(r.data[i]?.money));
+                    const cost = Number.isFinite(q) && q > 0 && Number.isFinite(m) ? m / q : NaN;
+                    return (
+                      <td key={`cost-${r.id}-${i}`} style={tdCtr}>
+                        {Number.isFinite(cost) ? numberFmt(cost, 2) : "—"}
+                      </td>
+                    );
+                  })}
+                </tr>
+              </React.Fragment>
+            ))}
+          </tbody>
 
-      {/* Затраты */}
-      <tr>
-               <td>Затраты</td>
-        <td>тенге</td>
-        <td style={tdCtr}>—</td>
+          {/* === ИТОГИ (ровно под годами) === */}
+          <tfoot>
+            {/* ИТОГО т.у.т */}
+            <tr>
+              {/* 4 левых колонки таблицы */}
+              <td></td>
+              <td colSpan={2} style={tdCtr}><b>ИТОГО т.у.т:</b></td>
+              <td style={tdCtr}>—</td>
 
-        {years.map((y, i) => (
-  <td key={`money-${r.id}-${i}`} style={td}>
-    <input
-      style={inpNum}
-      placeholder="0"
-      value={r.data[i]?.money ?? ""}
-      onChange={e => {
-        const v = cleanNum(e.target.value);
-        update(r.id, {
-          data: r.data.map((d, ii) => (ii === i ? { ...d, money: v } : d)),
-        });
-      }}
-    />
-  </td>
-))}
-      </tr>
+              {/* Значения по годам */}
+              {years.map((_, i) => (
+                <td key={`tot-tut-${i}`} style={tdCtr}>
+                  <b>{numberFmt(totals[i]?.tut || 0, 6)}</b>
+                </td>
+              ))}
+            </tr>
 
-      {/* Себестоимость */}
-      <tr>
-              <td>Себестоимость</td>
-        <td>₸/ед</td>
-        <td style={tdCtr}>—</td>
+            {/* ИТОГО (тенге) */}
+            <tr>
+              <td></td>
+              <td colSpan={2} style={tdCtr}><b>ИТОГО (тенге):</b></td>
+              <td style={tdCtr}>—</td>
 
-        {years.map((y, i) => {
-          const q = parseFloat(cleanNum(r.data[i]?.qty));
-          const m = parseFloat(cleanNum(r.data[i]?.money));
-          const cost = Number.isFinite(q) && q > 0 && Number.isFinite(m) ? m / q : NaN;
-          return <td>{Number.isFinite(cost) ? numberFmt(cost, 2) : "—"}</td>;
-        })}
-      </tr>
-    </React.Fragment>
-  ))}
-      </tbody>
+              {years.map((_, i) => (
+                <td key={`tot-money-${i}`} style={tdCtr}>
+                  <b>{moneyFmt(totals[i]?.money || 0)}</b>
+                </td>
+              ))}
+            </tr>
+          </tfoot>
+        </table>
 
-      {/* === ИТОГИ (ровно под годами) === */}
-      <tfoot>
-        {/* ИТОГО т.у.т */}
-        <tr>
-          {/* 4 левых колонки таблицы */}
-          <td></td>
-          <td colSpan={2} style={tdCtr}><b>ИТОГО т.у.т:</b></td>
-          <td style={tdCtr}>—</td>
+        {/* Кнопки под таблицей */}
+        <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+          <button style={btn} onClick={addRow}>+ Добавить ресурс</button>
+          <button style={btn} onClick={exportCSV}>Экспорт CSV</button>
+          <button style={btn} onClick={exportExcel}>Экспорт Excel</button>
+          <button style={btn} onClick={() => fileRef.current?.click()}>Импорт CSV</button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".csv,text/csv"
+            onChange={e => e.target.files?.[0] && importCSV(e.target.files[0])}
+            style={{ display: "none" }}
+          />
+          <button style={btnDanger} onClick={clearAll}>Очистить</button>
+        </div>
+      </div> {/* panel */}
 
-          {/* Значения по годам */}
-          {years.map((_, i) => (
-            <td key={`tot-tut-${i}`} style={tdCtr}>
-              <b>{numberFmt(totals[i]?.tut || 0, 6)}</b>
-            </td>
-          ))}
-        </tr>
+      {/* ====== Графики и сводки ====== */}
+      <div style={{ marginTop: 18 }}>
+        {/* ИТОГО по годам: т.у.т */}
+        <div style={panel}>
+          <h3 style={{ marginTop: 0 }}>ИТОГО: т.у.т по годам</h3>
+          <ResponsiveContainer width="100%" height={220}>
+            <LineChart data={chartDataPerYearTut}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="year" />
+              <YAxis />
+              <Tooltip />
+              <Legend />
+              <Line type="monotone" dataKey="tut" name="т.у.т" />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
 
-        {/* ИТОГО (тенге) */}
-        <tr>
-          <td></td>
-          <td colSpan={2} style={tdCtr}><b>ИТОГО (тенге):</b></td>
-          <td style={tdCtr}>—</td>
-
-          {years.map((_, i) => (
-            <td key={`tot-money-${i}`} style={tdCtr}>
-              <b>{moneyFmt(totals[i]?.money || 0)}</b>
-            </td>
-          ))}
-        </tr>
-            </tfoot>
-    </table>
-
-      {/* Кнопки под таблицей */}
-      <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
-        <button style={btn} onClick={addRow}>+ Добавить ресурс</button>
-        <button style={btn} onClick={exportCSV}>Экспорт CSV</button>
-        <button style={btn} onClick={exportExcel}>Экспорт Excel</button>
-        <button style={btn} onClick={() => fileRef.current?.click()}>Импорт CSV</button>
-        <input
-          ref={fileRef}
-          type="file"
-          accept=".csv,text/csv"
-          onChange={e => e.target.files?.[0] && importCSV(e.target.files[0])}
-          style={{ display: "none" }}
+        <DiffTable
+          title="Отклонения т.у.т"
+          years={years}
+          values={chartDataPerYearTut.map(x => x.tut)}
+          valueFmt={qtyFmt}
+          pctFmt={pctFmt}
         />
-        <button style={btnDanger} onClick={clearAll}>Очистить</button>
+
+        {/* ИТОГО по годам: тг */}
+        <div style={panel}>
+          <h3 style={{ marginTop: 0 }}>ИТОГО: расходы (тенге) по годам</h3>
+          <ResponsiveContainer width="100%" height={220}>
+            <LineChart data={chartDataPerYearMoney}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="year" />
+              <YAxis />
+              <Tooltip />
+              <Legend />
+              <Line type="monotone" dataKey="money" name="тенге" />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+
+        <DiffTable
+          title="Отклонения расходов (тенге)"
+          years={years}
+          values={chartDataPerYearMoney.map(x => x.money)}
+          valueFmt={moneyFmt0}
+          pctFmt={pctFmt}
+        />
+
+        {/* Круговые диаграммы */}
+        <div style={panel}>
+          <h3 style={{ marginTop: 0 }}>Структура расходов и т.у.т (за {years[0]})</h3>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <ResponsiveContainer width="100%" height={260}>
+              <PieChart>
+                <Pie dataKey="value" data={piesByYearMoney[0]?.data || []} outerRadius={110} label>
+                  {(piesByYearMoney[0]?.data || []).map((_, i) => (
+                    <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip />
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
+
+            <ResponsiveContainer width="100%" height={260}>
+              <PieChart>
+                <Pie dataKey="value" data={piesByYearTut[0]?.data || []} outerRadius={110} label>
+                  {(piesByYearTut[0]?.data || []).map((_, i) => (
+                    <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip />
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Графики по каждому ресурсу */}
+        {rows.map((r) => {
+          const s = perResourceSeries(r);
+          return (
+            <div key={r.id} style={panel}>
+              <h3 style={{ marginTop: 0 }}>{r.name}</h3>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+                {/* 1) Потребление */}
+                <div>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <LineChart data={s}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="year" />
+                      <YAxis />
+                      <Tooltip />
+                      <Legend />
+                      <Line type="monotone" dataKey="qty" name={`Потребление (${r.unit})`} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                  <DiffTable
+                    title={`Отклонения потребления (${r.unit})`}
+                    years={years}
+                    values={s.map((x) => x.qty)}
+                    valueFmt={qtyFmt}
+                    pctFmt={pctFmt}
+                  />
+                </div>
+
+                {/* 2) Расходы */}
+                <div>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <LineChart data={s}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="year" />
+                      <YAxis />
+                      <Tooltip />
+                      <Legend />
+                      <Line type="monotone" dataKey="money" name="Расходы, ₸" />
+                    </LineChart>
+                  </ResponsiveContainer>
+                  <DiffTable
+                    title="Отклонения расходов (тенге)"
+                    years={years}
+                    values={s.map((x) => x.money)}
+                    valueFmt={moneyFmt0}
+                    pctFmt={pctFmt}
+                  />
+                </div>
+
+                {/* 3) Себестоимость */}
+                <div>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <LineChart data={s}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="year" />
+                      <YAxis />
+                      <Tooltip />
+                      <Legend />
+                      <Line type="monotone" dataKey="cost" name="Себестоимость, ₸/ед" />
+                    </LineChart>
+                  </ResponsiveContainer>
+                  <DiffTable
+                    title="Отклонения себестоимости (₸/ед)"
+                    years={years}
+                    values={s.map((x) => x.cost)}
+                    valueFmt={costFmt}
+                    pctFmt={pctFmt}
+                  />
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
-  </div>
-);
+    );
 }
