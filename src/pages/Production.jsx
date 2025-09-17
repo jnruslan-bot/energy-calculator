@@ -585,10 +585,11 @@ groups.forEach((g) => {
         </div>
       ))}
 
-    {/* ===== Удельное потребление — ОДНА таблица на КАЖДЫЙ пункт ===== */}
+   {/* ===== Удельное потребление — ОДНА таблица на КАЖДЫЙ пункт ===== */}
 {groups.map((g) => (
   <div key={`spec-group-${g.id}`} style={panel}>
     <h3 style={{ margin: "0 0 12px 0" }}>Раздел: {g.title}</h3>
+
     {g.items.map((it) => {
       const denom = years.map((_, i) => {
         const v = parseFloat(cleanNum(it.data?.[i]?.nat));
@@ -601,6 +602,7 @@ groups.forEach((g) => {
           <h4 style={{ margin: "0 0 6px 0" }}>
             Удельное потребление — {it.name || "пункт"} (раздел: {g.title})
           </h4>
+
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
@@ -622,6 +624,7 @@ groups.forEach((g) => {
                   ))}
                 </tr>
               </thead>
+
               <tbody>
                 {consRows.map((r, idx) => {
                   const qtyByYear = years.map((_, i) => {
@@ -648,6 +651,23 @@ groups.forEach((g) => {
                     </tr>
                   );
                 })}
+
+                {/* ИТОГО */}
+                <tr style={{ fontWeight: "bold", background: "#1f2937" }}>
+                  <td style={td} colSpan={4}>ИТОГО</td>
+                  <td style={td}>{`тут/${unitNat}`}</td>
+                  {years.map((_, i) => {
+                    const sum = consRows.reduce((acc, r) => {
+                      const q = parseFloat(cleanNum(r.data?.[i]?.qty));
+                      return denom[i] > 0 && Number.isFinite(q) ? acc + q / denom[i] : acc;
+                    }, 0);
+                    return (
+                      <td key={`sum-${i}`} style={td}>
+                        {sum > 0 ? numberFmt(sum, 6) : "—"}
+                      </td>
+                    );
+                  })}
+                </tr>
               </tbody>
             </table>
           </div>
