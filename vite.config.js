@@ -1,19 +1,19 @@
-// vite.config.js
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+
+// Получаем метку времени (версия билда)
+const version = new Date().getTime();
 
 export default defineConfig({
-  // обязательно с косой чертой в начале и в конце:
-  base: '/energy-calculator/',
+  base: "/energy-calculator/",
   plugins: [react()],
   build: {
     rollupOptions: {
       output: {
-        entryFileNames: 'assets/[name].[hash].js',
-        chunkFileNames: 'assets/[name].[hash].js',
-        // у Vite/Rollup здесь используется [extname], а не [ext]
-        assetFileNames: 'assets/[name].[hash][extname]'
-      }
-    }
-  }
-})
+        entryFileNames: `assets/[name].[hash].js?v=${version}`,
+        chunkFileNames: `assets/[name].[hash].js?v=${version}`,
+        assetFileNames: `assets/[name].[hash].[ext]?v=${version}`,
+      },
+    },
+  },
+});

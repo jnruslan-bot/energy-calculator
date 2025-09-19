@@ -354,6 +354,60 @@ groups.forEach((g) => {
       wsSpec,
       `Уд. расход — ${truncateName(it.name || "пункт")}`
     );
+        // ==== Таблицы отклонений (экспорт) ====
+    const natVals = years.map((_, i) => {
+      const v = parseFloat((it.data?.[i]?.nat ?? "").toString().replace(",", "."));
+      return Number.isFinite(v) ? v : 0;
+    });
+    const moneyVals = years.map((_, i) => {
+      const v = parseFloat((it.data?.[i]?.money ?? "").toString().replace(",", "."));
+      return Number.isFinite(v) ? v : 0;
+    });
+
+    const natDev = years.map((y, i) => {
+      const v = natVals[i];
+      if (i === 0) return [y, v, "", ""];
+      const p = natVals[i - 1];
+      const dAbs = v - p;
+      const dPct = p !== 0 ? (v / p - 1) * 100 : "";
+      return [y, v, dAbs, dPct];
+    });
+    const moneyDev = years.map((y, i) => {
+      const v = moneyVals[i];
+      if (i === 0) return [y, v, "", ""];
+      const p = moneyVals[i - 1];
+      const dAbs = v - p;
+      const dPct = p !== 0 ? (v / p - 1) * 100 : "";
+      return [y, v, dAbs, dPct];
+    });
+
+    const headerDevNat = [
+      "Год",
+      `Значение (${it.unitNat || "нат."})`,
+      "Отклонение (ед.)",
+      "Отклонение (%)",
+    ];
+    const headerDevMoney = [
+      "Год",
+      "Значение (тг)",
+      "Отклонение (ед.)",
+      "Отклонение (%)",
+    ];
+
+    const wsDevNat = XLSX.utils.aoa_to_sheet([headerDevNat, ...natDev]);
+    const wsDevMoney = XLSX.utils.aoa_to_sheet([headerDevMoney, ...moneyDev]);
+
+    XLSX.utils.book_append_sheet(
+      wb,
+      wsDevNat,
+      `Откл. натур — ${truncateName(it.name || "пункт")}`
+    );
+    XLSX.utils.book_append_sheet(
+      wb,
+      wsDevMoney,
+      `Откл. тг — ${truncateName(it.name || "пункт")}`
+    );
+
   });
 });
 
@@ -364,6 +418,97 @@ groups.forEach((g) => {
 
   const truncateName = (s) =>
     (s || "").slice(0, 20).replace(/[\\/?*\[\]:]/g, "_");
+// === Графики и таблицы отклонений (общие) ===
+function buildDeviations(years, values) {
+  // values: массив чисел по годам
+  return years.map((y, i) => {
+    const v = Number.isFinite(values[i]) ? values[i] : 0;
+    if (i === 0) return { year: y, value: v, dAbs: null, dPct: null };
+    const p = Number.isFinite(values[i - 1]) ? values[i - 1] : 0;
+    const dAbs = v - p;
+    const dPct = p !== 0 ? (v / p - 1) * 100 : null;
+    return { year: y, value: v, dAbs, dPct };
+  });
+}
+
+function LineChart({ title, years, values, height = 220 }) {
+  const padding = { top: 20, right: 12, bottom: 24, left: 52 };
+  const W = 720, H = height, plotW = W - padding.left - padding.right, plotH = H - padding.top - padding.bottom;
+
+  const finiteVals = values.filter((v) => Number.isFinite(v));
+  let minY = 0, maxY = 1;
+  if (finiteVals.length) {
+    minY = Math.min(0, ...finiteVals);
+    maxY = Math.max(...finiteVals);
+    if (minY === maxY) maxY = minY + (minY === 0 ? 1 : Math.abs(minY) * 0.1);
+  }
+
+  const x = (i) => padding.left + (years.length > 1 ? (i * plotW) / (years.length - 1) : plotW / 2);
+  const y = (v) => padding.top + plotH - ((v - minY) / (maxY - minY)) * plotH;
+
+  const pts = years.map((_, i) => `${x(i)},${y(Number.isFinite(values[i]) ? values[i] : 0)}`).join(" ");
+
+  return (
+    <div style={{ width: "100%", overflowX: "auto" }}>
+      <div style={{ fontWeight: 600, margin: "6px 0 6px 0" }}>{title}</div>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "min(900px,100%)", height, background: "#0d1424", border: "1px solid #263041", borderRadius: 10 }}>
+        <rect x={padding.left} y={padding.top} width={plotW} height={plotH} fill="#0f172a" stroke="#263041" />
+        {[0,0.25,0.5,0.75,1].map((t,i)=>(
+          <g key={i}>
+            <line x1={padding.left} x2={padding.left+plotW} y1={padding.top+plotH*t} y2={padding.top+plotH*t} stroke="#263041" strokeDasharray="4 4"/>
+            <text x={padding.left-8} y={padding.top+plotH*t+4} textAnchor="end" fontSize="11" fill="#9fb2d7">
+              {Number.isFinite(minY) && Number.isFinite(maxY) ? new Intl.NumberFormat("ru-RU",{maximumFractionDigits:2}).format(minY+(maxY-minY)*(1-t)) : "—"}
+            </text>
+          </g>
+        ))}
+        {years.map((yy,i)=>(
+          <g key={yy}>
+            <line x1={x(i)} x2={x(i)} y1={padding.top+plotH} y2={padding.top+plotH+6} stroke="#9fb2d7"/>
+            <text x={x(i)} y={padding.top+plotH+18} textAnchor="middle" fontSize="11" fill="#9fb2d7">{yy}</text>
+          </g>
+        ))}
+        {finiteVals.length > 0 && (
+          <>
+            <polyline points={pts} fill="none" stroke="#60a5fa" strokeWidth="2.5" />
+            {years.map((_,i)=>(
+              <circle key={i} cx={x(i)} cy={y(Number.isFinite(values[i])?values[i]:0)} r="3" fill="#60a5fa"/>
+            ))}
+          </>
+        )}
+      </svg>
+    </div>
+  );
+}
+
+function DeviationTable({ rows, valueLabel }) {
+  const td = { borderBottom: "1px solid #263041", padding: 6 };
+  const th = { ...td, fontWeight: 600 };
+  return (
+    <div style={{ overflowX: "auto", marginTop: 8, marginBottom: 16 }}>
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <thead>
+          <tr>
+            <th style={th}>Год</th>
+            <th style={th}>{valueLabel}</th>
+            <th style={th}>Отклонение (ед.)</th>
+            <th style={th}>Отклонение (%)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r)=>(
+            <tr key={r.year}>
+              <td style={td}>{r.year}</td>
+              <td style={td}>{numberFmt(r.value, 3)}</td>
+              <td style={td}>{r.dAbs === null ? "—" : numberFmt(r.dAbs, 3)}</td>
+              <td style={td}>{r.dPct === null ? "—" : `${numberFmt(r.dPct, 2)} %`}</td>
+
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
   // ===== Стили =====
   const page = {
@@ -584,6 +729,49 @@ groups.forEach((g) => {
           </div>
         </div>
       ))}
+{/* === Графики по ТАБЛИЦЕ 1 (для каждого пункта производства) === */}
+{groups.map((g) => (
+  <div key={`charts-${g.id}`} style={panel}>
+    <h3 style={{ margin: "0 0 12px 0" }}>Графики по Таблице 1 — {g.title}</h3>
+    {g.items.map((it) => {
+      const natVals = years.map((_, i) => {
+        const v = parseFloat((it.data?.[i]?.nat ?? "").toString().replace(",", "."));
+        return Number.isFinite(v) ? v : 0;
+      });
+      const moneyVals = years.map((_, i) => {
+        const v = parseFloat((it.data?.[i]?.money ?? "").toString().replace(",", "."));
+        return Number.isFinite(v) ? v : 0;
+      });
+      const natDev = buildDeviations(years, natVals);
+      const moneyDev = buildDeviations(years, moneyVals);
+
+      return (
+        <div key={`chart-item-${it.id}`} style={{ marginBottom: 32 }}>
+          <h4 style={{ margin: "0 0 8px 0" }}>{it.name || "пункт"}</h4>
+
+          {/* Натуральное выражение */}
+          <LineChart
+            title={`Выпуск в натур. ед. (${it.unitNat || "ед. изм."})`}
+            years={years}
+            values={natVals}
+          />
+          <DeviationTable
+            rows={natDev}
+            valueLabel={`Значение (${it.unitNat || "нат."})`}
+          />
+
+          {/* Денежное выражение */}
+          <LineChart
+            title="Выпуск в деньгах (тг)"
+            years={years}
+            values={moneyVals}
+          />
+          <DeviationTable rows={moneyDev} valueLabel="Значение (тг)" />
+        </div>
+      );
+    })}
+  </div>
+))}
 
    {/* ===== Удельное потребление — ОДНА таблица на КАЖДЫЙ пункт ===== */}
 {groups.map((g) => (
