@@ -106,7 +106,16 @@ export default function Consumption({ onBack }) {
   const [yearsCount, setYearsCount] = useState(5);              // по умолчанию 5 лет
 
   const years = useMemo(() => Array.from({ length: yearsCount }, (_, i) => startYear + i), [startYear, yearsCount]);
-
+// ДОБАВЬ СРАЗУ НИЖЕ:
+const hasTwoYears = years.length >= 2;
+const ChartOrNote = ({ children, height = 220 }) =>
+  hasTwoYears ? (
+    children
+  ) : (
+    <div style={{ height, display: "grid", placeItems: "center", opacity: 0.8, fontSize: 12 }}>
+      Для построения графика нужен минимум 2 года данных
+    </div>
+  );
   // Данные по строкам
   const [rows, setRows] = useState(() => {
     const raw = localStorage.getItem("energy_calc_rows_v2");
@@ -125,7 +134,8 @@ export default function Consumption({ onBack }) {
           // отложенно через эффекты
         }
         setStartYear(y0 ?? startYear);
-        setYearsCount(yc ?? 5);
+        setYearsCount(Math.max(2, yc ?? 5));
+
         setTitle(t ?? "Расчёт по предприятию");
         // нормализуем длину массивов по годам
         return parsedRows.map(r => ({
@@ -244,7 +254,8 @@ export default function Consumption({ onBack }) {
         if (titleLine) setTitle(titleLine.split(";")[1]?.replace(/^"|"$/g, "") ?? title);
         if (year0Line) setStartYear(parseInt(year0Line.split(";")[1]));
         const ycParsed = yearsLine ? parseInt(yearsLine.split(";")[1]) : yearsCount;
-        if (yearsLine) setYearsCount(ycParsed);
+        if (yearsLine) setYearsCount(Math.max(2, ycParsed));
+
 
         const dataLines = lines.slice(idx + 1);
         const newRows = [];
@@ -606,14 +617,18 @@ export default function Consumption({ onBack }) {
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <label>Кол-во лет:</label>
-          <input
-            style={inpSm}
-            type="number"
-            min={1}
-            max={10}
-            value={yearsCount}
-            onChange={e => setYearsCount(Math.max(1, Math.min(10, parseInt(e.target.value || 5))))}
-          />
+         <input
+  style={inpSm}
+  type="number"
+  min={2}
+  max={10}
+  value={yearsCount}
+  onChange={e => {
+    const v = parseInt(e.target.value, 10);
+    setYearsCount(Math.max(2, Math.min(10, Number.isFinite(v) ? v : 2)));
+  }}
+/>
+
         </div>
       </div>
 
@@ -804,16 +819,19 @@ export default function Consumption({ onBack }) {
         {/* ИТОГО по годам: т.у.т */}
         <div style={panel}>
           <h3 style={{ marginTop: 0 }}>ИТОГО: т.у.т по годам</h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={chartDataPerYearTut}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="year" />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              <Line type="monotone" dataKey="tut" name="т.у.т" />
-            </LineChart>
-          </ResponsiveContainer>
+         <ChartOrNote height={220}>
+  <ResponsiveContainer width="100%" height={220}>
+    <LineChart data={chartDataPerYearTut}>
+      <CartesianGrid strokeDasharray="3 3" />
+      <XAxis dataKey="year" />
+      <YAxis />
+      <Tooltip />
+      <Legend />
+      <Line type="monotone" dataKey="tut" name="т.у.т" />
+    </LineChart>
+  </ResponsiveContainer>
+</ChartOrNote>
+
         </div>
 
         <DiffTable
@@ -827,16 +845,19 @@ export default function Consumption({ onBack }) {
         {/* ИТОГО по годам: тг */}
         <div style={panel}>
           <h3 style={{ marginTop: 0 }}>ИТОГО: расходы (тенге) по годам</h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={chartDataPerYearMoney}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="year" />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              <Line type="monotone" dataKey="money" name="тенге" />
-            </LineChart>
-          </ResponsiveContainer>
+          <ChartOrNote height={220}>
+  <ResponsiveContainer width="100%" height={220}>
+    <LineChart data={chartDataPerYearMoney}>
+      <CartesianGrid strokeDasharray="3 3" />
+      <XAxis dataKey="year" />
+      <YAxis />
+      <Tooltip />
+      <Legend />
+      <Line type="monotone" dataKey="money" name="тенге" />
+    </LineChart>
+  </ResponsiveContainer>
+</ChartOrNote>
+
         </div>
 
         <DiffTable
@@ -887,16 +908,19 @@ export default function Consumption({ onBack }) {
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
                 {/* 1) Потребление */}
                 <div>
-                  <ResponsiveContainer width="100%" height={200}>
-                    <LineChart data={s}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="year" />
-                      <YAxis />
-                      <Tooltip />
-                      <Legend />
-                      <Line type="monotone" dataKey="qty" name={`Потребление (${r.unit})`} />
-                    </LineChart>
-                  </ResponsiveContainer>
+                  <ChartOrNote height={200}>
+   <ResponsiveContainer width="100%" height={200}>
+    <LineChart data={s}>
+      <CartesianGrid strokeDasharray="3 3" />
+      <XAxis dataKey="year" />
+      <YAxis />
+      <Tooltip />
+      <Legend />
+      <Line type="monotone" dataKey="qty" name={`Потребление (${r.unit})`} />
+
+    </LineChart>
+  </ResponsiveContainer>
+</ChartOrNote>
                   <DiffTable
                     title={`Отклонения потребления (${r.unit})`}
                     years={years}
@@ -915,7 +939,9 @@ export default function Consumption({ onBack }) {
                       <YAxis />
                       <Tooltip />
                       <Legend />
-                      <Line type="monotone" dataKey="money" name="Расходы, ₸" />
+                     <Line type="monotone" dataKey="money" name="Расходы, ₸" />
+
+
                     </LineChart>
                   </ResponsiveContainer>
                   <DiffTable
