@@ -581,7 +581,8 @@ function Collapsible({ title, children, defaultOpen = false }) {
   const td = { borderBottom: "1px solid #263041", padding: 6, verticalAlign: "middle" };
   const th = { ...td, fontWeight: 600 };
 // === Компактный контейнер и таблицы (новое) ===
-const container = { maxWidth: 1200, margin: "0 auto" };
+const container = { width: "100%", margin: "0 auto" };
+
 
 const tableBase = {
   width: "100%",
