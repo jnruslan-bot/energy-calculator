@@ -1,8 +1,6 @@
+// vite.config.js
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-
-// Получаем метку времени (версия билда)
-const version = new Date().getTime();
 
 export default defineConfig({
   base: "/energy-calculator/",
@@ -10,9 +8,9 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        entryFileNames: `assets/[name].[hash].js?v=${version}`,
-        chunkFileNames: `assets/[name].[hash].js?v=${version}`,
-        assetFileNames: `assets/[name].[hash].[ext]?v=${version}`,
+        entryFileNames: "assets/[name]-[hash].js",
+        chunkFileNames: "assets/[name]-[hash].js",
+        assetFileNames: "assets/[name]-[hash][extname]",
       },
     },
   },
