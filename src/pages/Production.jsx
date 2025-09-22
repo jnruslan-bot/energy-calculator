@@ -450,7 +450,9 @@ function LineChart({ title, years, values, height = 220 }) {
 
   return (
     <div style={{ width: "100%", overflowX: "auto" }}>
-      <div style={{ fontWeight: 600, margin: "6px 0 6px 0" }}>{title}</div>
+     {title && (
+  <div style={{ fontWeight: 600, margin: "6px 0 6px 0" }}>{title}</div>
+)}
       <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "min(900px,100%)", height, background: "#0d1424", border: "1px solid #263041", borderRadius: 10 }}>
         <rect x={padding.left} y={padding.top} width={plotW} height={plotH} fill="#0f172a" stroke="#263041" />
         {[0,0.25,0.5,0.75,1].map((t,i)=>(
@@ -509,6 +511,33 @@ function DeviationTable({ rows, valueLabel }) {
     </div>
   );
 }
+function Collapsible({ title, children, defaultOpen = false }) {
+  return (
+    <details
+      open={defaultOpen}
+      style={{
+        margin: "12px 0 16px",
+        border: "1px solid #263041",
+        borderRadius: 10,
+        background: "#0d1424",
+        padding: "6px 10px",
+      }}
+    >
+      <summary
+        style={{
+          cursor: "pointer",
+          fontWeight: 600,
+          color: "#e8eefc",
+          outline: "none",
+          listStyle: "none",
+        }}
+      >
+        {title}
+      </summary>
+      <div style={{ marginTop: 10 }}>{children}</div>
+    </details>
+  );
+}
 
   // ===== Стили =====
   const page = {
@@ -551,6 +580,25 @@ function DeviationTable({ rows, valueLabel }) {
   const inpNum = { ...inp, minWidth: 110, textAlign: "right" };
   const td = { borderBottom: "1px solid #263041", padding: 6, verticalAlign: "middle" };
   const th = { ...td, fontWeight: 600 };
+// === Компактный контейнер и таблицы (новое) ===
+const container = { maxWidth: 1200, margin: "0 auto" };
+
+const tableBase = {
+  width: "100%",
+  borderCollapse: "separate",
+  borderSpacing: 0,
+  tableLayout: "fixed", // фиксированная сетка — колонки не «плавают»
+};
+
+const thC = { ...th, textAlign: "center", whiteSpace: "nowrap", padding: "8px 10px" };
+const tdText = { ...td, textAlign: "left", whiteSpace: "nowrap", padding: "6px 10px" };
+const tdNum  = { ...td, textAlign: "right", whiteSpace: "nowrap", padding: "6px 10px" };
+const tdInput = { ...tdNum, width: 92 };
+const sumRow = { fontWeight: 700, background: "#1f2937" };
+
+// слегка ужмём поля ввода
+const inpCompact = { ...inp, padding: "6px 8px", minWidth: 180 };
+const inpNumCompact = { ...inpCompact, minWidth: 88, textAlign: "right" };
 
   // ===== Рендер =====
   // Данные потребления (один раз, чтобы не читать в каждом рендере)
@@ -561,6 +609,8 @@ function DeviationTable({ rows, valueLabel }) {
 
   return (
     <div style={page}>
+      <div style={container}>
+
       <button onClick={onBack} style={{ ...btn, marginBottom: 12 }}>
         ⬅ Назад в меню
       </button>
@@ -733,6 +783,7 @@ function DeviationTable({ rows, valueLabel }) {
 {groups.map((g) => (
   <div key={`charts-${g.id}`} style={panel}>
     <h3 style={{ margin: "0 0 12px 0" }}>Графики по Таблице 1 — {g.title}</h3>
+
     {g.items.map((it) => {
       const natVals = years.map((_, i) => {
         const v = parseFloat((it.data?.[i]?.nat ?? "").toString().replace(",", "."));
@@ -749,29 +800,30 @@ function DeviationTable({ rows, valueLabel }) {
         <div key={`chart-item-${it.id}`} style={{ marginBottom: 32 }}>
           <h4 style={{ margin: "0 0 8px 0" }}>{it.name || "пункт"}</h4>
 
-          {/* Натуральное выражение */}
-          <LineChart
+          {/* Натуральные единицы */}
+          <Collapsible
             title={`Выпуск в натур. ед. (${it.unitNat || "ед. изм."})`}
-            years={years}
-            values={natVals}
-          />
-          <DeviationTable
-            rows={natDev}
-            valueLabel={`Значение (${it.unitNat || "нат."})`}
-          />
+            defaultOpen={true}
+          >
+            {/* Убрали дублирующий заголовок */}
+            <LineChart title="" years={years} values={natVals} />
+            <DeviationTable
+              rows={natDev}
+              valueLabel={`Значение (${it.unitNat || "нат."})`}
+            />
+          </Collapsible>
 
-          {/* Денежное выражение */}
-          <LineChart
-            title="Выпуск в деньгах (тг)"
-            years={years}
-            values={moneyVals}
-          />
-          <DeviationTable rows={moneyDev} valueLabel="Значение (тг)" />
+          {/* Деньги — открыты сразу */}
+          <Collapsible title="Выпуск в деньгах (тг)" defaultOpen={true}>
+            <LineChart title="" years={years} values={moneyVals} />
+            <DeviationTable rows={moneyDev} valueLabel="Значение (тг)" />
+          </Collapsible>
         </div>
       );
     })}
   </div>
 ))}
+
 
    {/* ===== Удельное потребление — ОДНА таблица на КАЖДЫЙ пункт ===== */}
 {groups.map((g) => (
@@ -859,11 +911,68 @@ function DeviationTable({ rows, valueLabel }) {
               </tbody>
             </table>
           </div>
+                    {/* === Графики и таблицы отклонений по каждой строке ТЭР === */}
+          {consRows.map((r, idx) => {
+            // серия "удельное потребление" для строки r
+            const qtyByYear = years.map((_, i) => {
+              const q = parseFloat(cleanNum(r.data?.[i]?.qty));
+              return Number.isFinite(q) ? q : 0;
+            });
+
+            const perUnit = years.map((_, i) =>
+              denom[i] > 0 ? qtyByYear[i] / denom[i] : 0
+            );
+
+            const dev = buildDeviations(years, perUnit);
+            const perUnitUnit = `${r.unit || ""}/${unitNat}`;
+
+            return (
+              <div key={`chart-spec-${it.id}-${idx}`} style={{ margin: "12px 0 24px" }}>
+                <LineChart
+                  title={`${r.name || "ТЭР"} — уд. потребление (${perUnitUnit})`}
+                  years={years}
+                  values={perUnit}
+                />
+                <DeviationTable
+                  rows={dev}
+                  valueLabel={`Значение (${perUnitUnit})`}
+                />
+              </div>
+            );
+          })}
+
+          {/* === ИТОГО: сумма удельных по всем ТЭР === */}
+          {(() => {
+            const sumPerUnit = years.map((_, i) => {
+              if (denom[i] <= 0) return 0;
+              const sumQty = consRows.reduce((acc, r) => {
+                const q = parseFloat(cleanNum(r.data?.[i]?.qty));
+                return Number.isFinite(q) ? acc + q : acc;
+              }, 0);
+              return sumQty / denom[i];
+            });
+            const devSum = buildDeviations(years, sumPerUnit);
+            return (
+              <div style={{ margin: "12px 0 8px" }}>
+                <LineChart
+                  title={`ИТОГО — удельное потребление (тут/${unitNat})`}
+                  years={years}
+                  values={sumPerUnit}
+                />
+                <DeviationTable
+                  rows={devSum}
+                  valueLabel={`Значение (тут/${unitNat})`}
+                />
+              </div>
+            );
+          })()}
+
         </div>
       );
     })}
   </div>
 ))}
+</div>
 </div>
 );
 }
