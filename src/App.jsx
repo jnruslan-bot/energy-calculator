@@ -2,9 +2,9 @@
 import React, { useState } from "react";
 import Consumption from "./pages/Consumption.jsx";
 import Production from "./pages/Production.jsx";
+import EnergyPassport from "./pages/EnergyPassport.jsx";
 
 export default function App() {
-  // стартуем с меню
   const [page, setPage] = useState("menu");
 
   // экраны разделов
@@ -14,6 +14,22 @@ export default function App() {
   if (page === "production") {
     return <Production onBack={() => setPage("menu")} />;
   }
+  if (page === "passport") {
+    return <EnergyPassport onBack={() => setPage("menu")} />;
+  }
+
+  // общий стиль для кнопок меню
+  const btnStyle = {
+    padding: "10px 16px",
+    borderRadius: 12,
+    border: "1px solid #374151",
+    background: "#111827",
+    color: "#e8eefc",
+    cursor: "pointer",
+    minWidth: 180,
+    fontSize: 15,
+    fontWeight: 500,
+  };
 
   // стартовое меню
   return (
@@ -43,35 +59,17 @@ export default function App() {
           Выберите раздел анализа
         </p>
 
-        <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
-          <button
-            onClick={() => setPage("consumption")}
-            style={{
-              padding: "10px 16px",
-              borderRadius: 12,
-              border: "1px solid #374151",
-              background: "#111827",
-              color: "#e8eefc",
-              cursor: "pointer",
-              minWidth: 180,
-            }}
-          >
+        <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
+          <button onClick={() => setPage("consumption")} style={btnStyle}>
             ⚡ Потребление
           </button>
 
-          <button
-            onClick={() => setPage("production")}
-            style={{
-              padding: "10px 16px",
-              borderRadius: 12,
-              border: "1px solid #374151",
-              background: "#111827",
-              color: "#e8eefc",
-              cursor: "pointer",
-              minWidth: 180,
-            }}
-          >
+          <button onClick={() => setPage("production")} style={btnStyle}>
             🏭 Производство
+          </button>
+
+          <button onClick={() => setPage("passport")} style={btnStyle}>
+            📑 Энергопаспорт
           </button>
         </div>
       </div>
